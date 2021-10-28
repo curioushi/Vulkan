@@ -15,22 +15,7 @@
 #include <vulkan/vulkan.h>
 #include "VulkanTools.h"
 
-#define BUFFER_ELEMENTS 32
-
 #define LOG(...) printf(__VA_ARGS__)
-
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageCallback(
-    VkDebugReportFlagsEXT flags,
-    VkDebugReportObjectTypeEXT objectType,
-    uint64_t object,
-    size_t location,
-    int32_t messageCode,
-    const char *pLayerPrefix,
-    const char *pMessage,
-    void *pUserData) {
-  LOG("[VALIDATION]: %s - %s\n", pLayerPrefix, pMessage);
-  return VK_FALSE;
-}
 
 class VulkanExample {
  public:
