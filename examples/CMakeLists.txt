@@ -114,6 +114,7 @@ set(EXAMPLES
 	raytracingreflections
 	raytracingshadows	
 	renderheadless
+	myrenderheadless
 	screenshot
 	shadowmapping
 	shadowmappingomni
