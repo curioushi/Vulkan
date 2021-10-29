@@ -6,6 +6,7 @@
 #include <array>
 #include <iostream>
 #include <algorithm>
+#include <chrono>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -198,6 +199,7 @@ class VulkanExample {
 
       // Copy input data to VRAM using a staging buffer
       {
+        auto t1 = std::chrono::high_resolution_clock::now();
         // Vertices
         createBuffer(
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -250,14 +252,17 @@ class VulkanExample {
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingMemory, nullptr);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1);
+        std::cout << "copy vertex buffer cost " << duration.count() << " us\n";
       }
     }
 
     /*
         Create framebuffer attachments
     */
-    width = 1024;
-    height = 1024;
+    width = 2048;
+    height = 1536;
     VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormat depthFormat;
     vks::tools::getSupportedDepthFormat(physicalDevice, &depthFormat);
@@ -568,9 +573,13 @@ class VulkanExample {
 
       VK_CHECK_RESULT(vkEndCommandBuffer(cmdBuffer));
 
+      auto t1 = std::chrono::high_resolution_clock::now();
       submitWork(cmdBuffer, queue);
 
       vkDeviceWaitIdle(device);
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1);
+      std::cout << "render cost " << duration.count() << " us\n";
     }
 
     /*
@@ -656,6 +665,7 @@ class VulkanExample {
 
       VK_CHECK_RESULT(vkEndCommandBuffer(copyCmd));
 
+      auto t1 = std::chrono::high_resolution_clock::now();
       submitWork(copyCmd, queue);
 
       // Get layout of the image (including row pitch)
@@ -668,6 +678,9 @@ class VulkanExample {
       // Map image memory so we can start copying from it
       vkMapMemory(device, dstImageMemory, 0, VK_WHOLE_SIZE, 0, (void **) &imagedata);
       imagedata += subResourceLayout.offset;
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1);
+      std::cout << "transfer image cost " << duration.count() << " us\n";
 
       /*
           Save host visible framebuffer image to disk (ppm format)
@@ -740,8 +753,6 @@ class VulkanExample {
 
 int main() {
   auto *vulkanExample = new VulkanExample();
-  std::cout << "Finished. Press enter to terminate...";
-  getchar();
   delete (vulkanExample);
   return 0;
 }
