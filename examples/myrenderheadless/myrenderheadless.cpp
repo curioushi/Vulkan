@@ -6,6 +6,7 @@
 #include <array>
 #include <chrono>
 #include <string>
+#include <algorithm>
 #include <vulkan/vulkan.h>
 
 #define GLM_FORCE_RADIANS
@@ -160,7 +161,7 @@ class HeadlessRenderer {
     CHECK_VK_SUCCESS(vkBindBufferMemory(device_, *pBuffer, *pMemory, 0));
   }
 
-  void create2DImage(uint32_t width, uint32_t height, VkFormat imageFormat, VkImageUsageFlags imageUsageFlags, VkMemoryPropertyFlags memoryProperties,
+  void create2DImage(uint32_t width, uint32_t height, VkFormat imageFormat, VkImageTiling tiling, VkImageUsageFlags imageUsageFlags, VkMemoryPropertyFlags memoryProperties,
                      VkImage *pImage, VkDeviceMemory *pMemory, VkImageView *pImageView) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -172,7 +173,7 @@ class HeadlessRenderer {
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.tiling = tiling;
     imageInfo.usage = imageUsageFlags;
     CHECK_VK_SUCCESS(vkCreateImage(device_, &imageInfo, nullptr, pImage));
 
@@ -291,10 +292,11 @@ class HeadlessRenderer {
       float color[3];
     };
     {
+      auto t1 = std::chrono::high_resolution_clock::now();
       std::vector<Vertex> vertices = {
-          {{0.5f, 0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-          {{-0.5f, 0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-          {{0.0f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+          {{1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+          {{-1.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+          {{0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
       };
       std::vector<uint32_t> indices = {0, 1, 2};
       const VkDeviceSize vertexBufferSize = vertices.size() * sizeof(Vertex);
@@ -313,6 +315,9 @@ class HeadlessRenderer {
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                    &indexBuffer_,
                    &indexMemory_);
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+      std::cout << "copy vertex/index buffer to device cost " << duration << " us\n";
     }
 
     // create image attachments
@@ -323,6 +328,7 @@ class HeadlessRenderer {
       create2DImage(width,
                     height,
                     colorFormat_,
+                    VK_IMAGE_TILING_OPTIMAL,
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     &color_,
@@ -333,6 +339,7 @@ class HeadlessRenderer {
       create2DImage(width,
                     height,
                     depthFormat_,
+                    VK_IMAGE_TILING_OPTIMAL,
                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     &depth_,
@@ -533,17 +540,207 @@ class HeadlessRenderer {
 
     // Create command buffer
     {
-//      VkCommandBuffer cmdBuffer;
-//      VkCommandBufferAllocateInfo cmdBufferAllocateInfo{};
-//      cmdBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-//      cmdBufferAllocateInfo.commandBufferCount = 1;
-//      cmdBufferAllocateInfo.commandPool = commandPool_;
-//      cmdBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-//      CHECK_VK_SUCCESS(vkAllocateCommandBuffers(device_, &cmdBufferAllocateInfo, &cmdBuffer));
-//
-//      VkCommandBufferBeginInfo cmdBufferBeginInfo{};
-//      cmdBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-//      CHECK_VK_SUCCESS(vkBeginCommandBuffer(cmdBuffer, &cmdBufferBeginInfo));
+      auto t1 = std::chrono::high_resolution_clock::now();
+      VkCommandBuffer cmdBuffer;
+      VkCommandBufferAllocateInfo cmdBufferAllocateInfo{};
+      cmdBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+      cmdBufferAllocateInfo.commandBufferCount = 1;
+      cmdBufferAllocateInfo.commandPool = commandPool_;
+      cmdBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+      CHECK_VK_SUCCESS(vkAllocateCommandBuffers(device_, &cmdBufferAllocateInfo, &cmdBuffer));
+
+      VkCommandBufferBeginInfo cmdBufferBeginInfo{};
+      cmdBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+      CHECK_VK_SUCCESS(vkBeginCommandBuffer(cmdBuffer, &cmdBufferBeginInfo));
+
+      VkClearValue clearValues[2];
+      clearValues[0].color = {{0.0f, 0.0f, 0.2f, 1.0f}};
+      clearValues[1].depthStencil = {1.0f, 0};
+      VkRenderPassBeginInfo renderPassBegin{};
+      renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+      renderPassBegin.renderPass = renderpass_;
+      renderPassBegin.framebuffer = framebuffer_;
+      renderPassBegin.renderArea.extent.width = width;
+      renderPassBegin.renderArea.extent.height = height;
+      renderPassBegin.clearValueCount = 2;
+      renderPassBegin.pClearValues = clearValues;
+      vkCmdBeginRenderPass(cmdBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+      VkViewport viewport;
+      viewport.width = (float)width;
+      viewport.height = (float)height;
+      viewport.minDepth = (float)0.0f;
+      viewport.maxDepth = (float)1.0f;
+      vkCmdSetViewport(cmdBuffer, 0, 1, &viewport);
+
+      VkRect2D scissor{};
+      scissor.extent.width = width;
+      scissor.extent.height = height;
+      vkCmdSetScissor(cmdBuffer, 0, 1, &scissor);
+
+      vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+
+      VkDeviceSize offsets[1] = {0};
+      vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer_, offsets);
+
+      vkCmdBindIndexBuffer(cmdBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
+
+      std::vector<glm::vec3> pos = {
+          glm::vec3(-1.5f, 0.0f, -4.0f),
+          glm::vec3(0.0f, 0.0f, -2.5f),
+          glm::vec3(1.5f, 0.0f, -4.0f)
+      };
+      for (auto v: pos) {
+        glm::mat4 mvp = glm::perspective(glm::radians(60.0f), (float) width / (float) height, 0.1f, 256.0f) * glm::translate(glm::mat4(1.0f), v);
+        vkCmdPushConstants(cmdBuffer, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
+        vkCmdDrawIndexed(cmdBuffer, 3, 1, 1, 0, 0);
+      }
+
+      vkCmdEndRenderPass(cmdBuffer);
+
+      CHECK_VK_SUCCESS(vkEndCommandBuffer(cmdBuffer));
+
+      VkSubmitInfo submitInfo{};
+      submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+      submitInfo.commandBufferCount = 1;
+      submitInfo.pCommandBuffers = &cmdBuffer;
+      vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
+      vkDeviceWaitIdle(device_);
+
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+      std::cout << "render cost " << duration << " us\n";
+    }
+
+    // copy image to host
+    VkImage dstImage;
+    VkDeviceMemory dstImageMemory;
+    VkImageView dstImageView;
+    {
+      auto t1 = std::chrono::high_resolution_clock::now();
+      create2DImage(width, height,
+                    VK_FORMAT_R8G8B8A8_UNORM,
+                    VK_IMAGE_TILING_LINEAR,
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    &dstImage,
+                    &dstImageMemory,
+                    &dstImageView);
+
+      VkCommandBuffer cmdBuffer;
+      VkCommandBufferAllocateInfo cmdBufferAllocateInfo{};
+      cmdBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+      cmdBufferAllocateInfo.commandBufferCount = 1;
+      cmdBufferAllocateInfo.commandPool = commandPool_;
+      cmdBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+      CHECK_VK_SUCCESS(vkAllocateCommandBuffers(device_, &cmdBufferAllocateInfo, &cmdBuffer));
+
+      VkCommandBufferBeginInfo cmdBufferBeginInfo{};
+      cmdBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+      CHECK_VK_SUCCESS(vkBeginCommandBuffer(cmdBuffer, &cmdBufferBeginInfo));
+
+      // destination image layout to TRANSFER_DST_OPTIMAL
+      VkImageMemoryBarrier imageBarrier{};
+      imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      imageBarrier.srcAccessMask = 0;
+      imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      imageBarrier.image = dstImage;
+      imageBarrier.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      vkCmdPipelineBarrier(cmdBuffer,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           0,
+                           0, nullptr,
+                           0, nullptr,
+                           1, &imageBarrier);
+
+      // source image layout is already TRANSFER_SRC_OPTIMAL
+
+      VkImageCopy copyRegion{};
+      copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      copyRegion.srcSubresource.layerCount = 1;
+      copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      copyRegion.dstSubresource.layerCount = 1;
+      copyRegion.extent.width = width;
+      copyRegion.extent.height = height;
+      copyRegion.extent.depth = 1;
+      vkCmdCopyImage(cmdBuffer, color_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     1, &copyRegion);
+
+      // destination image to general layout
+      imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      imageBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+      imageBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      imageBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      imageBarrier.image = dstImage;
+      imageBarrier.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      vkCmdPipelineBarrier(cmdBuffer,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           0,
+                           0, nullptr,
+                           0, nullptr,
+                           1, &imageBarrier);
+
+
+      CHECK_VK_SUCCESS(vkEndCommandBuffer(cmdBuffer));
+
+      VkSubmitInfo submitInfo{};
+      submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+      submitInfo.commandBufferCount = 1;
+      submitInfo.pCommandBuffers = &cmdBuffer;
+      vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
+      vkDeviceWaitIdle(device_);
+
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+      std::cout << "copy to host cost " << duration << " us\n";
+    }
+
+    // save image
+    const char * imageData;
+    {
+      VkImageSubresource subResource{};
+      subResource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      VkSubresourceLayout subResourceLayout{};
+      vkGetImageSubresourceLayout(device_, dstImage, &subResource, &subResourceLayout);
+
+      vkMapMemory(device_, dstImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&imageData);
+      imageData += subResourceLayout.offset;
+
+      const char *filename = "myheadless.ppm";
+      std::ofstream file(filename, std::ios::out | std::ios::binary);
+
+      // ppm header
+      file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
+
+      // If source is BGR (destination is always RGB) and we can't use blit (which does automatic conversion), we'll have to manually swizzle color components
+      // Check if source is BGR and needs swizzle
+      std::vector<VkFormat> formatsBGR = {VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM};
+      const bool colorSwizzle = (std::find(formatsBGR.begin(), formatsBGR.end(), VK_FORMAT_R8G8B8A8_UNORM) != formatsBGR.end());
+
+      // ppm binary pixel data
+      for (int32_t y = 0; y < height; y++) {
+        auto *row = (unsigned int *) imagedata;
+        for (int32_t x = 0; x < width; x++) {
+          if (colorSwizzle) {
+            file.write((char *) row + 2, 1);
+            file.write((char *) row + 1, 1);
+            file.write((char *) row, 1);
+          } else {
+            file.write((char *) row, 3);
+          }
+          row++;
+        }
+        imagedata += subResourceLayout.rowPitch;
+      }
+      file.close();
+
     }
   }
 
