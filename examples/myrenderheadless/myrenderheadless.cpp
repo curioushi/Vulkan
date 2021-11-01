@@ -718,23 +718,10 @@ class HeadlessRenderer {
 
       // ppm header
       file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
-
-      // If source is BGR (destination is always RGB) and we can't use blit (which does automatic conversion), we'll have to manually swizzle color components
-      // Check if source is BGR and needs swizzle
-      std::vector<VkFormat> formatsBGR = {VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM};
-      const bool colorSwizzle = (std::find(formatsBGR.begin(), formatsBGR.end(), VK_FORMAT_R8G8B8A8_UNORM) != formatsBGR.end());
-
-      // ppm binary pixel data
       for (int32_t y = 0; y < height; y++) {
         auto *row = (unsigned int *) imageData;
         for (int32_t x = 0; x < width; x++) {
-          if (colorSwizzle) {
-            file.write((char *) row + 2, 1);
-            file.write((char *) row + 1, 1);
-            file.write((char *) row, 1);
-          } else {
-            file.write((char *) row, 3);
-          }
+          file.write((char *) row, 3);
           row++;
         }
         imageData += subResourceLayout.rowPitch;
