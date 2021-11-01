@@ -321,8 +321,8 @@ class HeadlessRenderer {
     }
 
     // create image attachments
-    uint32_t width = 1024;
-    uint32_t height = 1024;
+    uint32_t width = 2048;
+    uint32_t height = 1536;
     {
       colorFormat_ = VK_FORMAT_R8G8B8A8_UNORM;
       create2DImage(width,
@@ -726,7 +726,7 @@ class HeadlessRenderer {
 
       // ppm binary pixel data
       for (int32_t y = 0; y < height; y++) {
-        auto *row = (unsigned int *) imagedata;
+        auto *row = (unsigned int *) imageData;
         for (int32_t x = 0; x < width; x++) {
           if (colorSwizzle) {
             file.write((char *) row + 2, 1);
@@ -737,7 +737,7 @@ class HeadlessRenderer {
           }
           row++;
         }
-        imagedata += subResourceLayout.rowPitch;
+        imageData += subResourceLayout.rowPitch;
       }
       file.close();
 
