@@ -94,11 +94,11 @@ class HeadlessRenderer {
 
   VkFormat getSupportedDepthFormat() {
     std::vector<VkFormat> depthFormats = {
-        VK_FORMAT_D32_SFLOAT_S8_UINT,
+//        VK_FORMAT_D32_SFLOAT_S8_UINT,
         VK_FORMAT_D32_SFLOAT,
-        VK_FORMAT_D24_UNORM_S8_UINT,
-        VK_FORMAT_D16_UNORM_S8_UINT,
-        VK_FORMAT_D16_UNORM
+//        VK_FORMAT_D24_UNORM_S8_UINT,
+//        VK_FORMAT_D16_UNORM_S8_UINT,
+//        VK_FORMAT_D16_UNORM
     };
     for (auto format : depthFormats) {
       VkFormatProperties formatProps;
@@ -384,14 +384,14 @@ class HeadlessRenderer {
       subpassDependencys[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
       subpassDependencys[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
       subpassDependencys[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-      subpassDependencys[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+      subpassDependencys[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
       subpassDependencys[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
       subpassDependencys[1].srcSubpass = 0;
       subpassDependencys[1].dstSubpass = VK_SUBPASS_EXTERNAL;
       subpassDependencys[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
       subpassDependencys[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-      subpassDependencys[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+      subpassDependencys[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
       subpassDependencys[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
       subpassDependencys[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
@@ -538,7 +538,7 @@ class HeadlessRenderer {
       CHECK_VK_SUCCESS(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &pipeInfo, nullptr, &pipeline_));
     }
 
-    // Create command buffer
+    // create draw command buffer
     {
       auto t1 = std::chrono::high_resolution_clock::now();
       VkCommandBuffer cmdBuffer;
@@ -619,7 +619,7 @@ class HeadlessRenderer {
     {
       auto t1 = std::chrono::high_resolution_clock::now();
       create2DImage(width, height,
-                    VK_FORMAT_R8G8B8A8_UNORM,
+                    depthFormat_,
                     VK_IMAGE_TILING_LINEAR,
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -649,7 +649,7 @@ class HeadlessRenderer {
       imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       imageBarrier.image = dstImage;
-      imageBarrier.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      imageBarrier.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
       vkCmdPipelineBarrier(cmdBuffer,
                            VK_PIPELINE_STAGE_TRANSFER_BIT,
                            VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -661,14 +661,14 @@ class HeadlessRenderer {
       // source image layout is already TRANSFER_SRC_OPTIMAL
 
       VkImageCopy copyRegion{};
-      copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
       copyRegion.srcSubresource.layerCount = 1;
-      copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
       copyRegion.dstSubresource.layerCount = 1;
       copyRegion.extent.width = width;
       copyRegion.extent.height = height;
       copyRegion.extent.depth = 1;
-      vkCmdCopyImage(cmdBuffer, color_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+      vkCmdCopyImage(cmdBuffer, depth_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                      dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                      1, &copyRegion);
 
@@ -678,7 +678,7 @@ class HeadlessRenderer {
       imageBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
       imageBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
       imageBarrier.image = dstImage;
-      imageBarrier.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      imageBarrier.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
       vkCmdPipelineBarrier(cmdBuffer,
                            VK_PIPELINE_STAGE_TRANSFER_BIT,
                            VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -706,9 +706,14 @@ class HeadlessRenderer {
     const char * imageData;
     {
       VkImageSubresource subResource{};
-      subResource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      subResource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
       VkSubresourceLayout subResourceLayout{};
       vkGetImageSubresourceLayout(device_, dstImage, &subResource, &subResourceLayout);
+      printf("arrayPitch = %lu\n", subResourceLayout.arrayPitch);
+      printf("depthPitch = %lu\n", subResourceLayout.depthPitch);
+      printf("rowPitch = %lu\n", subResourceLayout.rowPitch);
+      printf("size = %lu\n", subResourceLayout.size);
+      printf("offset = %lu\n", subResourceLayout.offset);
 
       vkMapMemory(device_, dstImageMemory, 0, VK_WHOLE_SIZE, 0, (void**)&imageData);
       imageData += subResourceLayout.offset;
@@ -719,10 +724,13 @@ class HeadlessRenderer {
       // ppm header
       file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
       for (int32_t y = 0; y < height; y++) {
-        auto *row = (unsigned int *) imageData;
+        auto *row = (float *) imageData;
         for (int32_t x = 0; x < width; x++) {
-          file.write((char *) row, 3);
-          row++;
+          const char val = (*row) * 255.0;
+          file.write(&val, 1);
+          file.write(&val, 1);
+          file.write(&val, 1);
+          ++row;
         }
         imageData += subResourceLayout.rowPitch;
       }
