@@ -8,6 +8,11 @@
 #include <string>
 #include <vulkan/vulkan.h>
 
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #define CHECK_VK_SUCCESS(ret) \
   if ((ret) != VK_SUCCESS) {  \
     std::cerr << "check vk success failed at line: " << __LINE__; \
@@ -28,6 +33,14 @@ VkVertexInputAttributeDescription initializeVertexInputAttribute(uint32_t bindin
   description.format = format;
   description.offset = offset;
   return description;
+}
+
+VkPushConstantRange initializePushConstanceRange(uint32_t size, uint32_t offset, VkShaderStageFlags stageFlags) {
+  VkPushConstantRange constantRange;
+  constantRange.size = size;
+  constantRange.offset = offset;
+  constantRange.stageFlags = stageFlags;
+  return constantRange;
 }
 
 class HeadlessRenderer {
@@ -60,6 +73,7 @@ class HeadlessRenderer {
 
   VkPipeline pipeline_;
   VkPipelineCache pipelineCache_;
+  VkPipelineLayout pipelineLayout_;
   VkShaderModule shaderVertex_;
   VkShaderModule shaderFragment_;
 
@@ -96,11 +110,11 @@ class HeadlessRenderer {
   }
 
   VkShaderModule loadShader(const std::string &filename) {
-    std::ifstream file(filename, std::ios_base::binary | std::ios_base::in | std::ios_base::ate);
+    std::ifstream file(filename, std::ios::binary | std::ios::in | std::ios::ate);
     if (file.is_open()) {
       size_t size = file.tellg();
       assert(size > 0);
-      file.seekg(0, std::ios_base::beg);
+      file.seekg(0, std::ios::beg);
       char *shaderCode = new char[size];
       file.read(shaderCode, size);
       file.close();
@@ -211,6 +225,9 @@ class HeadlessRenderer {
       VkInstanceCreateInfo instanceInfo{};
       instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
       instanceInfo.pApplicationInfo = &appInfo;
+//      const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
+//      instanceInfo.enabledLayerCount = 1;
+//      instanceInfo.ppEnabledLayerNames = &validationLayerName;
       CHECK_VK_SUCCESS(vkCreateInstance(&instanceInfo, nullptr, &instance_));
     }
 
@@ -245,10 +262,12 @@ class HeadlessRenderer {
 
     // create logical device
     {
+      float queuePriority = 1.0f;
       VkDeviceQueueCreateInfo queueCreateInfo{};
       queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
       queueCreateInfo.queueFamilyIndex = queueFamilyIndex_;
       queueCreateInfo.queueCount = 1;
+      queueCreateInfo.pQueuePriorities = &queuePriority;
       VkDeviceCreateInfo deviceCreateInfo{};
       deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
       deviceCreateInfo.queueCreateInfoCount = 1;
@@ -343,7 +362,7 @@ class HeadlessRenderer {
       attachmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
       VkAttachmentReference colorRef = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-      VkAttachmentReference depthRef = {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+      VkAttachmentReference depthRef = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
       VkSubpassDescription subpassDescription{};
       subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -387,7 +406,7 @@ class HeadlessRenderer {
       attachments[1] = depthView_;
 
       VkFramebufferCreateInfo bufferInfo{};
-      bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+      bufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
       bufferInfo.renderPass = renderpass_;
       bufferInfo.attachmentCount = attachments.size();
       bufferInfo.pAttachments = attachments.data();
@@ -399,15 +418,43 @@ class HeadlessRenderer {
 
     // create graphics pipeline
     {
+      VkPipelineCacheCreateInfo cacheInfo{};
+      cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+      CHECK_VK_SUCCESS(vkCreatePipelineCache(device_, &cacheInfo, nullptr, &pipelineCache_));
+
+      VkGraphicsPipelineCreateInfo pipeInfo{};
+      pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+      pipeInfo.pNext = nullptr;
+      pipeInfo.renderPass = renderpass_;
+      pipeInfo.subpass = 0;
+      pipeInfo.flags = 0;
+
+      VkPushConstantRange pushConstant = initializePushConstanceRange(sizeof(glm::mat4), 0, VK_SHADER_STAGE_VERTEX_BIT);
+      VkPipelineLayoutCreateInfo layoutInfo{};
+      layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+      layoutInfo.pNext = nullptr;
+      layoutInfo.pushConstantRangeCount = 1;
+      layoutInfo.pPushConstantRanges = &pushConstant;
+      layoutInfo.setLayoutCount = 0;
+      layoutInfo.pSetLayouts = nullptr;
+      CHECK_VK_SUCCESS(vkCreatePipelineLayout(device_, &layoutInfo, nullptr, &pipelineLayout_));
+      pipeInfo.layout = pipelineLayout_;
+
       std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages;
       shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
       shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-      shaderStages[0].module = loadShader(VK_EXAMPLE_DATA_DIR "shaders/glsl/myrenderheadless/triangle.vert");
-      shaderStages[0].pNext = "main";
+      shaderStages[0].module = loadShader(VK_EXAMPLE_DATA_DIR "shaders/glsl/myrenderheadless/triangle.vert.spv");
+      shaderStages[0].pName = "main";
+      shaderStages[0].pSpecializationInfo = nullptr;
       shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
       shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-      shaderStages[1].module = loadShader(VK_EXAMPLE_DATA_DIR "shaders/glsl/myrenderheadless/triangle.frag");
-      shaderStages[1].pNext = "main";
+      shaderStages[1].module = loadShader(VK_EXAMPLE_DATA_DIR "shaders/glsl/myrenderheadless/triangle.frag.spv");
+      shaderStages[1].pName = "main";
+      shaderStages[1].pSpecializationInfo = nullptr;
+      shaderVertex_ = shaderStages[0].module;
+      shaderFragment_ = shaderStages[1].module;
+      pipeInfo.stageCount = shaderStages.size();
+      pipeInfo.pStages = shaderStages.data();
 
       VkVertexInputBindingDescription vertexBinding = initializeVertexInputBinding(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
       std::array<VkVertexInputAttributeDescription, 2> vertexAttributes{
@@ -418,30 +465,37 @@ class HeadlessRenderer {
       vertexInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
       vertexInputState.vertexBindingDescriptionCount = 1;
       vertexInputState.pVertexBindingDescriptions = &vertexBinding;
-      vertexInputState.vertexAttributeDescriptionCount = 2;
+      vertexInputState.vertexAttributeDescriptionCount = vertexAttributes.size();
       vertexInputState.pVertexAttributeDescriptions = vertexAttributes.data();
+      pipeInfo.pVertexInputState = &vertexInputState;
 
       VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{};
       inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
       inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
       inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+      pipeInfo.pInputAssemblyState = &inputAssemblyState;
 
       VkPipelineViewportStateCreateInfo viewportState{};
       viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
       viewportState.viewportCount = 1;
       viewportState.scissorCount = 1;
+      pipeInfo.pViewportState = &viewportState;
 
       VkPipelineRasterizationStateCreateInfo rasterState{};
       rasterState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
       rasterState.depthClampEnable = VK_FALSE;
+      rasterState.rasterizerDiscardEnable = VK_FALSE;
       rasterState.polygonMode = VK_POLYGON_MODE_FILL;
       rasterState.cullMode = VK_CULL_MODE_BACK_BIT;
       rasterState.frontFace = VK_FRONT_FACE_CLOCKWISE;
       rasterState.lineWidth = 1.0f;
+      rasterState.depthBiasEnable = VK_FALSE;
+      pipeInfo.pRasterizationState = &rasterState;
 
       VkPipelineMultisampleStateCreateInfo multisampleState{};
       multisampleState.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
       multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+      pipeInfo.pMultisampleState = &multisampleState;
 
       VkPipelineDepthStencilStateCreateInfo depthStencilState{};
       depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -449,44 +503,56 @@ class HeadlessRenderer {
       depthStencilState.depthWriteEnable = VK_TRUE;
       depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
       depthStencilState.back.compareOp = VK_COMPARE_OP_ALWAYS;
+      pipeInfo.pDepthStencilState = &depthStencilState;
 
       VkPipelineColorBlendAttachmentState attachmentState{};
       attachmentState.blendEnable = VK_FALSE;
-      attachmentState.colorWriteMask = 0x0f;
-
+      attachmentState.colorWriteMask = 0xf;
       VkPipelineColorBlendStateCreateInfo colorBlendState{};
       colorBlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
       colorBlendState.attachmentCount = 1;
       colorBlendState.pAttachments = &attachmentState;
+      pipeInfo.pColorBlendState = &colorBlendState;
 
       std::vector<VkDynamicState> dynamicStates {
-        VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR
+          VK_DYNAMIC_STATE_VIEWPORT,
+          VK_DYNAMIC_STATE_SCISSOR
       };
       VkPipelineDynamicStateCreateInfo dynamicStateInfo{};
       dynamicStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
       dynamicStateInfo.dynamicStateCount = dynamicStates.size();
       dynamicStateInfo.pDynamicStates = dynamicStates.data();
-
-      VkGraphicsPipelineCreateInfo pipeInfo{};
-      pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-      pipeInfo.stageCount = shaderStages.size();
-      pipeInfo.pStages = shaderStages.data();
-      pipeInfo.pVertexInputState = &vertexInputState;
-      pipeInfo.pInputAssemblyState = &inputAssemblyState;
-      pipeInfo.pViewportState = &viewportState;
-      pipeInfo.pRasterizationState = &rasterState;
-      pipeInfo.pMultisampleState = &multisampleState;
-      pipeInfo.pDepthStencilState = &depthStencilState;
-      pipeInfo.pColorBlendState = &colorBlendState;
       pipeInfo.pDynamicState = &dynamicStateInfo;
 
+      pipeInfo.basePipelineIndex = -1;
+      pipeInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+
       CHECK_VK_SUCCESS(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &pipeInfo, nullptr, &pipeline_));
+    }
+
+    // Create command buffer
+    {
+//      VkCommandBuffer cmdBuffer;
+//      VkCommandBufferAllocateInfo cmdBufferAllocateInfo{};
+//      cmdBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+//      cmdBufferAllocateInfo.commandBufferCount = 1;
+//      cmdBufferAllocateInfo.commandPool = commandPool_;
+//      cmdBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+//      CHECK_VK_SUCCESS(vkAllocateCommandBuffers(device_, &cmdBufferAllocateInfo, &cmdBuffer));
+//
+//      VkCommandBufferBeginInfo cmdBufferBeginInfo{};
+//      cmdBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+//      CHECK_VK_SUCCESS(vkBeginCommandBuffer(cmdBuffer, &cmdBufferBeginInfo));
     }
   }
 
   ~HeadlessRenderer() {
     vkDestroyPipeline(device_, pipeline_, nullptr);
+    vkDestroyPipelineCache(device_, pipelineCache_, nullptr);
+    vkDestroyShaderModule(device_, shaderVertex_, nullptr);
+    vkDestroyShaderModule(device_, shaderFragment_, nullptr);
+    vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     vkDestroyFramebuffer(device_, framebuffer_, nullptr);
     vkDestroyRenderPass(device_, renderpass_, nullptr);
     vkFreeMemory(device_, vertexMemory_, nullptr);
