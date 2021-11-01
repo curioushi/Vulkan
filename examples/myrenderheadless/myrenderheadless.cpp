@@ -13,6 +13,23 @@
     std::cerr << "check vk success failed at line: " << __LINE__; \
   }
 
+VkVertexInputBindingDescription initializeVertexInputBinding(uint32_t binding, uint32_t stride, VkVertexInputRate inputRate) {
+  VkVertexInputBindingDescription description;
+  description.binding = binding;
+  description.stride = stride;
+  description.inputRate = inputRate;
+  return description;
+}
+
+VkVertexInputAttributeDescription initializeVertexInputAttribute(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset) {
+  VkVertexInputAttributeDescription description;
+  description.binding = binding;
+  description.location = location;
+  description.format = format;
+  description.offset = offset;
+  return description;
+}
+
 class HeadlessRenderer {
  public:
   VkInstance instance_;
@@ -42,6 +59,7 @@ class HeadlessRenderer {
   VkFramebuffer framebuffer_;
 
   VkPipeline pipeline_;
+  VkPipelineCache pipelineCache_;
   VkShaderModule shaderVertex_;
   VkShaderModule shaderFragment_;
 
@@ -77,13 +95,13 @@ class HeadlessRenderer {
     throw std::runtime_error("can not find supported depth format");
   }
 
-  VkShaderModule loadShader(const std::string& filename) {
+  VkShaderModule loadShader(const std::string &filename) {
     std::ifstream file(filename, std::ios_base::binary | std::ios_base::in | std::ios_base::ate);
     if (file.is_open()) {
       size_t size = file.tellg();
       assert(size > 0);
       file.seekg(0, std::ios_base::beg);
-      char* shaderCode = new char[size];
+      char *shaderCode = new char[size];
       file.read(shaderCode, size);
       file.close();
 
@@ -91,11 +109,11 @@ class HeadlessRenderer {
       VkShaderModuleCreateInfo createInfo{};
       createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
       createInfo.codeSize = size;
-      createInfo.pCode = (uint32_t*)shaderCode;
+      createInfo.pCode = (uint32_t *) shaderCode;
 
       vkCreateShaderModule(device_, &createInfo, nullptr, &shader);
 
-      delete [] shaderCode;
+      delete[] shaderCode;
       return shader;
     }
     throw std::runtime_error("shader file dost not exist");
@@ -161,23 +179,17 @@ class HeadlessRenderer {
     imageViewInfo.subresourceRange = {};
     VkImageAspectFlags aspectMask{};
     switch (imageFormat) {
-      case VK_FORMAT_D16_UNORM:
-        aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+      case VK_FORMAT_D16_UNORM:aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
         break;
-      case VK_FORMAT_D16_UNORM_S8_UINT:
-        aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+      case VK_FORMAT_D16_UNORM_S8_UINT:aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
         break;
-      case VK_FORMAT_D24_UNORM_S8_UINT:
-        aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+      case VK_FORMAT_D24_UNORM_S8_UINT:aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
         break;
-      case VK_FORMAT_D32_SFLOAT:
-        aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+      case VK_FORMAT_D32_SFLOAT:aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
         break;
-      case VK_FORMAT_D32_SFLOAT_S8_UINT:
-        aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+      case VK_FORMAT_D32_SFLOAT_S8_UINT:aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
         break;
-      default:
-        aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      default:aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     }
     imageViewInfo.subresourceRange.aspectMask = aspectMask;
     imageViewInfo.subresourceRange.baseMipLevel = 0;
@@ -390,17 +402,91 @@ class HeadlessRenderer {
       std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages;
       shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
       shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-      shaderStages[0].module = loadShader("data/");
+      shaderStages[0].module = loadShader(VK_EXAMPLE_DATA_DIR "shaders/glsl/myrenderheadless/triangle.vert");
       shaderStages[0].pNext = "main";
+      shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+      shaderStages[1].module = loadShader(VK_EXAMPLE_DATA_DIR "shaders/glsl/myrenderheadless/triangle.frag");
+      shaderStages[1].pNext = "main";
+
+      VkVertexInputBindingDescription vertexBinding = initializeVertexInputBinding(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
+      std::array<VkVertexInputAttributeDescription, 2> vertexAttributes{
+          initializeVertexInputAttribute(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),
+          initializeVertexInputAttribute(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3)
+      };
+      VkPipelineVertexInputStateCreateInfo vertexInputState{};
+      vertexInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+      vertexInputState.vertexBindingDescriptionCount = 1;
+      vertexInputState.pVertexBindingDescriptions = &vertexBinding;
+      vertexInputState.vertexAttributeDescriptionCount = 2;
+      vertexInputState.pVertexAttributeDescriptions = vertexAttributes.data();
+
+      VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{};
+      inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+      inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+      inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+
+      VkPipelineViewportStateCreateInfo viewportState{};
+      viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+      viewportState.viewportCount = 1;
+      viewportState.scissorCount = 1;
+
+      VkPipelineRasterizationStateCreateInfo rasterState{};
+      rasterState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+      rasterState.depthClampEnable = VK_FALSE;
+      rasterState.polygonMode = VK_POLYGON_MODE_FILL;
+      rasterState.cullMode = VK_CULL_MODE_BACK_BIT;
+      rasterState.frontFace = VK_FRONT_FACE_CLOCKWISE;
+      rasterState.lineWidth = 1.0f;
+
+      VkPipelineMultisampleStateCreateInfo multisampleState{};
+      multisampleState.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+      multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+      VkPipelineDepthStencilStateCreateInfo depthStencilState{};
+      depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+      depthStencilState.depthTestEnable = VK_TRUE;
+      depthStencilState.depthWriteEnable = VK_TRUE;
+      depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+      depthStencilState.back.compareOp = VK_COMPARE_OP_ALWAYS;
+
+      VkPipelineColorBlendAttachmentState attachmentState{};
+      attachmentState.blendEnable = VK_FALSE;
+      attachmentState.colorWriteMask = 0x0f;
+
+      VkPipelineColorBlendStateCreateInfo colorBlendState{};
+      colorBlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+      colorBlendState.attachmentCount = 1;
+      colorBlendState.pAttachments = &attachmentState;
+
+      std::vector<VkDynamicState> dynamicStates {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+      };
+      VkPipelineDynamicStateCreateInfo dynamicStateInfo{};
+      dynamicStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+      dynamicStateInfo.dynamicStateCount = dynamicStates.size();
+      dynamicStateInfo.pDynamicStates = dynamicStates.data();
 
       VkGraphicsPipelineCreateInfo pipeInfo{};
       pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
       pipeInfo.stageCount = shaderStages.size();
       pipeInfo.pStages = shaderStages.data();
+      pipeInfo.pVertexInputState = &vertexInputState;
+      pipeInfo.pInputAssemblyState = &inputAssemblyState;
+      pipeInfo.pViewportState = &viewportState;
+      pipeInfo.pRasterizationState = &rasterState;
+      pipeInfo.pMultisampleState = &multisampleState;
+      pipeInfo.pDepthStencilState = &depthStencilState;
+      pipeInfo.pColorBlendState = &colorBlendState;
+      pipeInfo.pDynamicState = &dynamicStateInfo;
+
+      CHECK_VK_SUCCESS(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &pipeInfo, nullptr, &pipeline_));
     }
   }
 
   ~HeadlessRenderer() {
+    vkDestroyPipeline(device_, pipeline_, nullptr);
     vkDestroyFramebuffer(device_, framebuffer_, nullptr);
     vkDestroyRenderPass(device_, renderpass_, nullptr);
     vkFreeMemory(device_, vertexMemory_, nullptr);
