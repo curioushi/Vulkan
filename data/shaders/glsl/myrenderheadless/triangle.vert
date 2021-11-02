@@ -10,12 +10,17 @@ out gl_PerVertex {
 };
 
 layout(push_constant) uniform PushConsts {
-	mat4 mvp;
-} pushConsts;
+	mat4 model_view;
+	mat4 proj;
+	float far_z;
+} constants;
 
 void main() 
 {
 	outColor = inColor;
-	vec4 p = pushConsts.mvp * vec4(inPos.xyz, 1.0);
-	gl_Position = vec4(p.x/p.z, p.y/p.z, p.z, 1.0);
+	vec4 pView = constants.model_view * vec4(inPos.xyz, 1.0);
+	vec4 pImg = pView / pView.z;
+	pImg = constants.proj * pImg;
+	float ndc_depth = pView.z / constants.far_z;
+	gl_Position = vec4(pImg.x, pImg.y, ndc_depth, 1.0);
 }

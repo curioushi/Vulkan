@@ -16,6 +16,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/string_cast.hpp>
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 #define CHECK_VK_SUCCESS(ret) \
   if ((ret) != VK_SUCCESS) {  \
     std::cerr << "check vk success failed at line: " << __LINE__; \
@@ -288,19 +292,51 @@ class HeadlessRenderer {
       CHECK_VK_SUCCESS(vkCreateCommandPool(device_, &poolCreateInfo, nullptr, &commandPool_));
     }
 
-    // copy vertex data to device local buffer
     struct Vertex {
       float position[3];
       float color[3];
     };
+    std::vector<Vertex> vertices = {
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+    };
+    std::vector<uint32_t> indices = {0, 1, 2};
+    // load mesh
+    {
+      Assimp::Importer importer;
+      const aiScene* scene = importer.ReadFile("/home/shq/XYZPoseLab/brake_disk/models/model.ply", aiProcess_Triangulate);
+      if (scene) {
+        if (scene->mNumMeshes == 1) {
+          const aiMesh* mesh = scene->mMeshes[0];
+          if (mesh->mNumFaces > 0 && mesh->mNumVertices > 0) {
+            vertices.clear();
+            indices.clear();
+            for (int i = 0; i < mesh->mNumVertices; ++i) {
+              Vertex vertex;
+              vertex.position[0] = mesh->mVertices[i].x;
+              vertex.position[1] = mesh->mVertices[i].y;
+              vertex.position[2] = mesh->mVertices[i].z;
+              vertex.color[0] = 1.0f;
+              vertex.color[1] = 1.0f;
+              vertex.color[2] = 1.0f;
+              vertices.push_back(vertex);
+            }
+            for (int i = 0; i < mesh->mNumFaces; ++i) {
+              indices.push_back(mesh->mFaces[i].mIndices[0]);
+              indices.push_back(mesh->mFaces[i].mIndices[1]);
+              indices.push_back(mesh->mFaces[i].mIndices[2]);
+            }
+          }
+        }
+      }
+    }
+    printf("#vertices = %lu\n", vertices.size());
+    printf("#indices = %lu\n", indices.size());
+
+    // copy vertex data to device local buffer
     {
       auto t1 = std::chrono::high_resolution_clock::now();
-      std::vector<Vertex> vertices = {
-          {{1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-          {{0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-          {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-      };
-      std::vector<uint32_t> indices = {0, 1, 2};
       const VkDeviceSize vertexBufferSize = vertices.size() * sizeof(Vertex);
       const VkDeviceSize indexBufferSize = indices.size() * sizeof(uint32_t);
 
@@ -426,6 +462,11 @@ class HeadlessRenderer {
     }
 
     // create graphics pipeline
+    struct MeshPushConstants {
+      glm::mat4 model_view;
+      glm::mat4 proj;
+      float far_z;
+    };
     {
       VkPipelineCacheCreateInfo cacheInfo{};
       cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
@@ -438,12 +479,14 @@ class HeadlessRenderer {
       pipeInfo.subpass = 0;
       pipeInfo.flags = 0;
 
-      VkPushConstantRange pushConstant = initializePushConstanceRange(sizeof(glm::mat4), 0, VK_SHADER_STAGE_VERTEX_BIT);
+      std::vector<VkPushConstantRange> pushConstants = {
+          initializePushConstanceRange(sizeof(MeshPushConstants), 0, VK_SHADER_STAGE_VERTEX_BIT),
+      };
       VkPipelineLayoutCreateInfo layoutInfo{};
       layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
       layoutInfo.pNext = nullptr;
-      layoutInfo.pushConstantRangeCount = 1;
-      layoutInfo.pPushConstantRanges = &pushConstant;
+      layoutInfo.pushConstantRangeCount = pushConstants.size();
+      layoutInfo.pPushConstantRanges = pushConstants.data();
       layoutInfo.setLayoutCount = 0;
       layoutInfo.pSetLayouts = nullptr;
       CHECK_VK_SUCCESS(vkCreatePipelineLayout(device_, &layoutInfo, nullptr, &pipelineLayout_));
@@ -495,7 +538,7 @@ class HeadlessRenderer {
       rasterState.depthClampEnable = VK_FALSE;
       rasterState.rasterizerDiscardEnable = VK_FALSE;
       rasterState.polygonMode = VK_POLYGON_MODE_FILL;
-      rasterState.cullMode = VK_CULL_MODE_BACK_BIT;
+      rasterState.cullMode = VK_CULL_MODE_NONE;
       rasterState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
       rasterState.lineWidth = 1.0f;
       rasterState.depthBiasEnable = VK_FALSE;
@@ -588,31 +631,48 @@ class HeadlessRenderer {
       vkCmdBindIndexBuffer(cmdBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
 
       std::vector<glm::vec3> pos = {
-          glm::vec3(-1.0f, 0.0f, 0.0f),
-          glm::vec3(0.0f, 0.0f, 0.5f),
-          glm::vec3(1.0f, 0.0f, 0.0f)
+          glm::vec3(-0.6f, 0.0f, 0.0f),
+          glm::vec3(-0.3f, 0.0f, 0.0f),
+          glm::vec3(0.0f, 0.0f, 0.0f),
+          glm::vec3(0.3f, 0.0f, 0.0f),
+//          glm::vec3(0.6f, 0.0f, 0.0f),
+          glm::vec3(-0.6f, 0.3f, 0.0f),
+          glm::vec3(-0.3f, 0.3f, 0.0f),
+          glm::vec3(0.0f, 0.3f, 0.0f),
+          glm::vec3(0.3f, 0.3f, 0.0f),
+//          glm::vec3(0.6f, 0.3f, 0.0f),
+          glm::vec3(-0.6f, -0.3f, 0.0f),
+          glm::vec3(-0.3f, -0.3f, 0.0f),
+          glm::vec3(0.0f, -0.3f, 0.0f),
+          glm::vec3(0.3f, -0.3f, 0.0f),
+//          glm::vec3(0.6f, -0.3f, 0.0f),
       };
+
       glm::mat4 view = glm::mat4(1);
       view[1][1] = -1;
       view[2][2] = -1;
-      view[3][2] = 4;
+      view[3][2] = 2;
+
       glm::mat4 K = glm::mat4(1);
-      K[0][0] = 256;
-      K[1][1] = 256;
+      K[0][0] = 2413;
+      K[1][1] = 2413;
       K[3][0] = 2048 / 2;
       K[3][1] = 1536 / 2;
+
       glm::mat4 img2ndc = glm::mat4(1);
       img2ndc[0][0] = 2.0f / 2048.0f;
       img2ndc[1][1] = 2.0f / 1536.0f;
-      img2ndc[2][2] = 1.0f / 4.0f;
       img2ndc[3][0] = -1.0f;
       img2ndc[3][1] = -1.0f;
-      glm::mat4 view_projection = img2ndc * K * glm::inverse(view);
+
+      MeshPushConstants constants;
+      constants.proj = img2ndc * K;
+      constants.far_z = 4.0f;
 
       for (auto v: pos) {
-        glm::mat4 mvp = view_projection * glm::translate(glm::mat4(1.0f), v);
-        vkCmdPushConstants(cmdBuffer, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
-        vkCmdDrawIndexed(cmdBuffer, 3, 1, 1, 0, 0);
+        constants.model_view = glm::inverse(view) * glm::translate(glm::mat4(1.0f), v);
+        vkCmdPushConstants(cmdBuffer, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+        vkCmdDrawIndexed(cmdBuffer, indices.size(), 1, 0, 0, 0);
       }
 
       vkCmdEndRenderPass(cmdBuffer);
@@ -636,9 +696,8 @@ class HeadlessRenderer {
     VkDeviceMemory dstImageMemory;
     VkImageView dstImageView;
     {
-      auto t1 = std::chrono::high_resolution_clock::now();
       create2DImage(width, height,
-                    VK_FORMAT_R8G8B8A8_UNORM,
+                    colorFormat_,
                     VK_IMAGE_TILING_LINEAR,
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -708,6 +767,8 @@ class HeadlessRenderer {
 
 
       CHECK_VK_SUCCESS(vkEndCommandBuffer(cmdBuffer));
+
+      auto t1 = std::chrono::high_resolution_clock::now();
 
       VkSubmitInfo submitInfo{};
       submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
