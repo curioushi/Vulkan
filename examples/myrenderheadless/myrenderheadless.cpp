@@ -326,7 +326,7 @@ class HeadlessRenderer {
     uint32_t width = 2048;
     uint32_t height = 1536;
     {
-      colorFormat_ = VK_FORMAT_R8G8B8A8_UNORM;
+      colorFormat_ = VK_FORMAT_R8_UNORM;
       create2DImage(width,
                     height,
                     colorFormat_,
@@ -638,7 +638,7 @@ class HeadlessRenderer {
     {
       auto t1 = std::chrono::high_resolution_clock::now();
       create2DImage(width, height,
-                    VK_FORMAT_R8G8B8A8_UNORM,
+                    colorFormat_,
                     VK_IMAGE_TILING_LINEAR,
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -738,9 +738,11 @@ class HeadlessRenderer {
       // ppm header
       file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
       for (int32_t y = 0; y < height; y++) {
-        auto *row = (unsigned int *) imageData;
+        auto *row = (unsigned char *) imageData;
         for (int32_t x = 0; x < width; x++) {
-          file.write((char *) row, 3);
+          file.write((char *) row, 1);
+          file.write((char *) row, 1);
+          file.write((char *) row, 1);
           row++;
         }
         imageData += subResourceLayout.rowPitch;
