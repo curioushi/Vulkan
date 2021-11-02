@@ -11,8 +11,10 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 #define CHECK_VK_SUCCESS(ret) \
   if ((ret) != VK_SUCCESS) {  \
@@ -294,9 +296,9 @@ class HeadlessRenderer {
     {
       auto t1 = std::chrono::high_resolution_clock::now();
       std::vector<Vertex> vertices = {
-          {{1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-          {{-1.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-          {{0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+          {{1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+          {{0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+          {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
       };
       std::vector<uint32_t> indices = {0, 1, 2};
       const VkDeviceSize vertexBufferSize = vertices.size() * sizeof(Vertex);
@@ -494,7 +496,7 @@ class HeadlessRenderer {
       rasterState.rasterizerDiscardEnable = VK_FALSE;
       rasterState.polygonMode = VK_POLYGON_MODE_FILL;
       rasterState.cullMode = VK_CULL_MODE_BACK_BIT;
-      rasterState.frontFace = VK_FRONT_FACE_CLOCKWISE;
+      rasterState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
       rasterState.lineWidth = 1.0f;
       rasterState.depthBiasEnable = VK_FALSE;
       pipeInfo.pRasterizationState = &rasterState;
@@ -586,12 +588,29 @@ class HeadlessRenderer {
       vkCmdBindIndexBuffer(cmdBuffer, indexBuffer_, 0, VK_INDEX_TYPE_UINT32);
 
       std::vector<glm::vec3> pos = {
-          glm::vec3(-1.5f, 0.0f, -4.0f),
-          glm::vec3(0.0f, 0.0f, -2.5f),
-          glm::vec3(1.5f, 0.0f, -4.0f)
+          glm::vec3(-1.0f, 0.0f, 0.0f),
+          glm::vec3(0.0f, 0.0f, 0.5f),
+          glm::vec3(1.0f, 0.0f, 0.0f)
       };
+      glm::mat4 view = glm::mat4(1);
+      view[1][1] = -1;
+      view[2][2] = -1;
+      view[3][2] = 4;
+      glm::mat4 K = glm::mat4(1);
+      K[0][0] = 256;
+      K[1][1] = 256;
+      K[3][0] = 2048 / 2;
+      K[3][1] = 1536 / 2;
+      glm::mat4 img2ndc = glm::mat4(1);
+      img2ndc[0][0] = 2.0f / 2048.0f;
+      img2ndc[1][1] = 2.0f / 1536.0f;
+      img2ndc[2][2] = 1.0f / 4.0f;
+      img2ndc[3][0] = -1.0f;
+      img2ndc[3][1] = -1.0f;
+      glm::mat4 view_projection = img2ndc * K * glm::inverse(view);
+
       for (auto v: pos) {
-        glm::mat4 mvp = glm::perspective(glm::radians(60.0f), (float) width / (float) height, 0.1f, 256.0f) * glm::translate(glm::mat4(1.0f), v);
+        glm::mat4 mvp = view_projection * glm::translate(glm::mat4(1.0f), v);
         vkCmdPushConstants(cmdBuffer, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
         vkCmdDrawIndexed(cmdBuffer, 3, 1, 1, 0, 0);
       }
