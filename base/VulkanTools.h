@@ -74,6 +74,12 @@ namespace vks
 		/** @brief Returns the device type as a string */
 		std::string physicalDeviceTypeString(VkPhysicalDeviceType type);
 
+        std::string formatString(VkFormat format);
+
+        std::string tilingString(VkImageTiling tiling);
+
+        std::string usageString(VkImageUsageFlagBits flag);
+
 		// Selected a suitable supported depth format starting with 32 bit down to 16 bit
 		// Returns false if none of the depth formats in the list is supported by the device
 		VkBool32 getSupportedDepthFormat(VkPhysicalDevice physicalDevice, VkFormat *depthFormat);

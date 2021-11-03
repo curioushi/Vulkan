@@ -19,6 +19,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <VulkanTools.h>
 
 #define CHECK_VK_SUCCESS(ret) \
   if ((ret) != VK_SUCCESS) {  \
@@ -283,6 +284,75 @@ class HeadlessRenderer {
       vkGetDeviceQueue(device_, queueFamilyIndex_, 0, &queue_);
     }
 
+    // check image format capabilities
+    {
+      for (int i = 0; i < 185; ++i) {
+        VkFormat format = (VkFormat)i;
+        VkFormatProperties formatProps;
+        vkGetPhysicalDeviceFormatProperties(physicalDevice_, format, &formatProps);
+        std::cout << "------------------------------------\n";
+        std::cout << vks::tools::formatString(format) << "\n";
+        int bitmask = 0x00001000;
+        for (int j = 0; j < 13; ++j) {
+          if (formatProps.linearTilingFeatures & bitmask) {
+            std::cout << "1";
+          } else {
+            std::cout << "0";
+          }
+          bitmask >>= 1;
+        }
+        std::cout << " : linearTilingFeatures\n";
+        bitmask = 0x00001000;
+        for (int j = 0; j < 13; ++j) {
+          if (formatProps.optimalTilingFeatures & bitmask) {
+            std::cout << "1";
+          } else {
+            std::cout << "0";
+          }
+          bitmask >>= 1;
+        }
+        std::cout << " : optimalTilingFeatures\n";
+        bitmask = 0x00001000;
+        for (int j = 0; j < 13; ++j) {
+          if (formatProps.bufferFeatures & bitmask) {
+            std::cout << "1";
+          } else {
+            std::cout << "0";
+          }
+          bitmask >>= 1;
+        }
+        std::cout << " : bufferFeatures\n";
+      }
+    }
+
+    // check format
+    {
+      std::vector<VkImageTiling> tilings = {VK_IMAGE_TILING_LINEAR, VK_IMAGE_TILING_OPTIMAL};
+      std::vector<VkImageUsageFlagBits> usages = {
+          VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+          VK_IMAGE_USAGE_SAMPLED_BIT,
+          VK_IMAGE_USAGE_STORAGE_BIT,
+          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+          VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+          VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
+      };
+      for (int i = 0; i < 185; ++i) {
+        VkFormat format = (VkFormat)i;
+        for (auto tiling : tilings) {
+          for (auto usage : usages) {
+            VkImageFormatProperties props;
+            VkResult result = vkGetPhysicalDeviceImageFormatProperties(physicalDevice_, format, VK_IMAGE_TYPE_2D, tiling, usage, 0, &props);
+            if (result == VK_SUCCESS) {
+              std::cout << vks::tools::formatString(format) << ", " << vks::tools::tilingString(tiling) << ", " << vks::tools::usageString(usage) << ", "
+                        << props.maxExtent.width << ", " << props.maxExtent.height << "\n";
+            }
+          }
+        }
+      }
+    }
+
     // create command pool
     {
       VkCommandPoolCreateInfo poolCreateInfo{};
@@ -305,7 +375,7 @@ class HeadlessRenderer {
     // load mesh
     {
       Assimp::Importer importer;
-      const aiScene* scene = importer.ReadFile("/home/shq/XYZPoseLab/brake_disk/models/model.ply", aiProcess_Triangulate);
+      const aiScene* scene = importer.ReadFile("/home/shq/Data/DeepTote/20210915_169/00000003/model.stl", aiProcess_Triangulate);
       if (scene) {
         if (scene->mNumMeshes == 1) {
           const aiMesh* mesh = scene->mMeshes[0];
@@ -635,17 +705,17 @@ class HeadlessRenderer {
           glm::vec3(-0.3f, 0.0f, 0.0f),
           glm::vec3(0.0f, 0.0f, 0.0f),
           glm::vec3(0.3f, 0.0f, 0.0f),
-//          glm::vec3(0.6f, 0.0f, 0.0f),
+          glm::vec3(0.6f, 0.0f, 0.0f),
           glm::vec3(-0.6f, 0.3f, 0.0f),
           glm::vec3(-0.3f, 0.3f, 0.0f),
           glm::vec3(0.0f, 0.3f, 0.0f),
           glm::vec3(0.3f, 0.3f, 0.0f),
-//          glm::vec3(0.6f, 0.3f, 0.0f),
+          glm::vec3(0.6f, 0.3f, 0.0f),
           glm::vec3(-0.6f, -0.3f, 0.0f),
           glm::vec3(-0.3f, -0.3f, 0.0f),
           glm::vec3(0.0f, -0.3f, 0.0f),
           glm::vec3(0.3f, -0.3f, 0.0f),
-//          glm::vec3(0.6f, -0.3f, 0.0f),
+          glm::vec3(0.6f, -0.3f, 0.0f),
       };
 
       glm::mat4 view = glm::mat4(1);
